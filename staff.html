@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Smart Parking Gate System</title>
+
+<style>
+body{font-family:system-ui;background:#f6f8fc;margin:0}
+.wrap{max-width:700px;margin:auto;padding:20px}
+
+.card{
+  background:#fff;
+  padding:16px;
+  border-radius:14px;
+  margin-bottom:12px;
+  border:1px solid #e2e8f0;
+}
+
+input{
+  width:100%;
+  padding:10px;
+  border-radius:10px;
+  border:1px solid #ddd;
+}
+
+button{
+  padding:10px;
+  border-radius:10px;
+  border:1px solid #ddd;
+  cursor:pointer;
+}
+
+.primary{background:#2563eb;color:white}
+.success{background:#16a34a;color:white}
+.danger{background:#ef4444;color:white}
+
+.big{font-size:22px;font-weight:900}
+.ok{color:#16a34a}
+.bad{color:#ef4444}
+.small{color:#666;font-size:13px}
+.row{display:flex;gap:10px;margin-top:10px;flex-wrap:wrap}
+</style>
+</head>
+
+<body>
+
+<div class="wrap">
+
+<h2>🚗 Smart Parking Gate System</h2>
+
+<!-- AUTH -->
+<div class="card">
+<h3>Staff Login</h3>
+<input id="pin" type="password" placeholder="Enter PIN">
+<div class="row">
+<button class="primary" id="login">Login</button>
+</div>
+<p id="auth"></p>
+</div>
+
+<!-- VERIFY -->
+<div class="card">
+<h3>Booking Control</h3>
+<input id="bid" placeholder="Booking ID">
+
+<div class="row">
+<button class="primary" id="verify">Verify</button>
+<button class="success" id="checkin">Check-In</button>
+<button class="danger" id="cancel">Cancel</button>
+</div>
+
+<div style="margin-top:15px">
+<div id="status" class="big">Waiting...</div>
+<div id="info" class="small"></div>
+</div>
+
+</div>
+
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
+import {
+getDatabase, ref, get, update, remove
+} from "https://www.gstatic.com/firebasejs/10.12.5/firebase-database.js";
+
+const firebaseConfig = {
+apiKey: "YOUR_KEY",
+authDomain: "YOUR_DOMAIN",
+databaseURL: "YOUR_DB",
+projectId: "YOUR_ID"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+
+const el = id => document.getElementById(id);
+const now = () => Date.now();
+
+let auth = false;
+
+/* LOGIN */
+el("login").onclick = () => {
+  if(el("pin").value === "1234"){
+    auth = true;
+    el("auth").innerText = "Access granted ✅";
+    el("auth").style.color = "green";
+  }else{
+    el("auth").innerText = "Wrong PIN ❌";
+    el("auth").style.color = "red";
+  }
+};
+
+/* VERIFY */
+async function verify(){
+  if(!auth) return alert("Login first");
+
+  const id = el("bid").value.trim();
+  if(!id) return;
+
+  const snap = await get(ref(db,"bookings/"+id));
+
+  if(!snap.exists()){
+    return show("INVALID ❌","Not found");
+  }
+
+  const b = snap.val();
+
+  // expiry protection
+  if(b.expiresAt && now() > b.expiresAt){
+    return show("EXPIRED ❌","Booking expired");
+  }
+
+  if(b.status !== "reserved"){
+    return show("INVALID ❌","Status: "+b.status);
+  }
+
+  show("VALID ✅",
+    `Slot: ${b.slot}\nCustomer: ${b.customerName}\nVehicle: ${b.vehicleNo}`
+  );
+}
+
+/* CHECK-IN */
+el("checkin").onclick = async () => {
+  if(!auth) return alert("Login first");
+
+  const id = el("bid").value.trim();
+  if(!id) return;
+
+  const snap = await get(ref(db,"bookings/"+id));
+  if(!snap.exists()) return;
+
+  const b = snap.val();
+
+  if(b.status !== "reserved"){
+    return alert("Already processed");
+  }
+
+  await update(ref(db,"bookings/"+id),{
+    status:"checked_in",
+    checkedInAt:now()
+  });
+
+  await remove(ref(db,"activeBookings/slot"+b.slot));
+
+  show("CHECKED-IN ✅","Access granted");
+};
+
+/* CANCEL */
+el("cancel").onclick = async () => {
+  if(!auth) return alert("Login first");
+
+  const id = el("bid").value.trim();
+  if(!id) return;
+
+  const snap = await get(ref(db,"bookings/"+id));
+  if(!snap.exists()) return;
+
+  const b = snap.val();
+
+  await update(ref(db,"bookings/"+id),{
+    status:"cancelled",
+    cancelledAt:now()
+  });
+
+  await remove(ref(db,"activeBookings/slot"+b.slot));
+
+  show("CANCELLED ❌","Removed successfully");
+};
+
+function show(t,i){
+  el("status").innerText = t;
+  el("info").innerText = i;
+}
+
+el("verify").onclick = verify;
+
+</script>
+
+</body>
+</html>
