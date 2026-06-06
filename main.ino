@@ -1,227 +1,78 @@
-#include <ESP8266WiFi.h>
-#include <PubSubClient.h>
-#include <Ultrasonic.h>
-#include <Servo.h>
+#include <WiFi.h>
+#include <Firebase_ESP_Client.h>
 
-/************ WiFi ************/
-const char* ssid = "YOUR_WIFI";
-const char* password = "YOUR_PASSWORD";
+// WiFi
+#define WIFI_SSID "YOUR_WIFI_NAME"
+#define WIFI_PASSWORD "YOUR_WIFI_PASSWORD"
 
-/************ MQTT ************/
-const char* mqtt_server = "test.mosquitto.org";
+// Firebase
+#define API_KEY "AIzaSyDTAas1droAkeShhrnvoJhDCc74uJQQhEA"
+#define DATABASE_URL "https://esp32-parking-8feef-default-rtdb.firebaseio.com/"
 
-WiFiClient espClient;
-PubSubClient client(espClient);
+// IR sensors
+#define IR1 25
+#define IR2 26
+#define IR3 27
 
-/************ Pins (ESP8266) ************/
-#define TRIG_PIN   D5
-#define ECHO_PIN   D6
+FirebaseData fbdo;
+FirebaseAuth auth;
+FirebaseConfig config;
 
-#define RED_LED    D1
-#define GREEN_LED  D2
-#define BLUE_LED   D3
+int last1 = -1, last2 = -1, last3 = -1;
 
-#define SERVO_PIN  D7
-#define BUTTON_PIN D0
+void setup() {
+  Serial.begin(115200);
 
-#define LDR_PIN    A0
+  pinMode(IR1, INPUT);
+  pinMode(IR2, INPUT);
+  pinMode(IR3, INPUT);
 
-#define LIGHT1     D8
-#define LIGHT2     D4
+  // WiFi connect
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  Serial.print("Connecting WiFi");
 
-#define MAX_CARS 5
-#define DETECTION_DISTANCE 20
-
-/************ Objects ************/
-Ultrasonic ultrasonic(TRIG_PIN, ECHO_PIN);
-Servo gateServo;
-
-/************ Variables ************/
-uint8_t carsInParking = 0;
-uint16_t blockedCars = 0;
-bool vehicleDetected = false;
-unsigned long lastPublish = 0;
-
-/************ WiFi ************/
-void setupWifi()
-{
-  delay(10);
-  Serial.println("Connecting WiFi...");
-
-  WiFi.begin(ssid, password);
-
-  while (WiFi.status() != WL_CONNECTED)
-  {
+  while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
   }
 
-  Serial.println("\nWiFi connected");
-  Serial.println(WiFi.localIP());
+  Serial.println("\nConnected to WiFi");
+
+  // Firebase config
+  config.api_key = API_KEY;
+  config.database_url = DATABASE_URL;
+
+  // Anonymous login (IMPORTANT FIX)
+  auth.user.email = "";
+  auth.user.password = "";
+
+  Firebase.begin(&config, &auth);
+  Firebase.reconnectWiFi(true);
 }
 
-/************ MQTT ************/
-void callback(char* topic, byte* payload, unsigned int length)
-{
-  Serial.print("Topic: ");
-  Serial.println(topic);
-}
+void loop() {
 
-void reconnectMQTT()
-{
-  while (!client.connected())
-  {
-    String clientId = "ESP8266-Parking-";
-    clientId += String(random(1000));
+  int s1 = (digitalRead(IR1) == LOW) ? 1 : 0;
+  int s2 = (digitalRead(IR2) == LOW) ? 1 : 0;
+  int s3 = (digitalRead(IR3) == LOW) ? 1 : 0;
 
-    if (client.connect(clientId.c_str()))
-    {
-      Serial.println("MQTT connected");
-    }
-    else
-    {
-      delay(3000);
-    }
-  }
-}
-
-/************ Publish ************/
-void publishData()
-{
-  client.publish("parking/cars", String(carsInParking).c_str(), true);
-  client.publish("parking/blocked", String(blockedCars).c_str(), true);
-}
-
-/************ Gate ************/
-void openGate()
-{
-  digitalWrite(BLUE_LED, HIGH);
-  gateServo.write(180);
-  delay(2500);
-  gateServo.write(90);
-  digitalWrite(BLUE_LED, LOW);
-}
-
-/************ Lights ************/
-void updateLights()
-{
-  int ldrValue = analogRead(LDR_PIN);
-  int lightPercent = map(ldrValue, 1023, 0, 100, 0);
-
-  if (lightPercent < 80)
-  {
-    digitalWrite(LIGHT1, HIGH);
-    digitalWrite(LIGHT2, HIGH);
-  }
-  else
-  {
-    digitalWrite(LIGHT1, LOW);
-    digitalWrite(LIGHT2, LOW);
-  }
-}
-
-/************ Entry ************/
-void processEntry()
-{
-  if (carsInParking >= MAX_CARS)
-  {
-    blockedCars++;
-    publishData();
-
-    for (int i = 0; i < 6; i++)
-    {
-      digitalWrite(RED_LED, !digitalRead(RED_LED));
-      delay(300);
-    }
-
-    digitalWrite(RED_LED, HIGH);
-    return;
+  // 🔥 only send if changed (optimization)
+  if (s1 != last1) {
+    Firebase.RTDB.setInt(&fbdo, "/parking/slot1", s1);
+    last1 = s1;
   }
 
-  carsInParking++;
-  publishData();
-
-  digitalWrite(GREEN_LED, HIGH);
-  openGate();
-  digitalWrite(GREEN_LED, LOW);
-
-  Serial.println("Car Entered");
-}
-
-/************ Exit ************/
-void processExit()
-{
-  if (carsInParking > 0)
-  {
-    carsInParking--;
-    publishData();
-    openGate();
-    Serial.println("Car Left");
-  }
-}
-
-/************ Setup ************/
-void setup()
-{
-  Serial.begin(115200);
-
-  pinMode(RED_LED, OUTPUT);
-  pinMode(GREEN_LED, OUTPUT);
-  pinMode(BLUE_LED, OUTPUT);
-
-  pinMode(LIGHT1, OUTPUT);
-  pinMode(LIGHT2, OUTPUT);
-
-  pinMode(BUTTON_PIN, INPUT);
-
-  gateServo.attach(SERVO_PIN);
-  gateServo.write(90);
-
-  setupWifi();
-
-  client.setServer(mqtt_server, 1883);
-  client.setCallback(callback);
-
-  digitalWrite(RED_LED, HIGH);
-}
-
-/************ Loop ************/
-void loop()
-{
-  if (!client.connected())
-    reconnectMQTT();
-
-  client.loop();
-
-  updateLights();
-
-  // EXIT button
-  if (digitalRead(BUTTON_PIN) == HIGH)
-  {
-    delay(50);
-    if (digitalRead(BUTTON_PIN) == HIGH)
-    {
-      processExit();
-      while (digitalRead(BUTTON_PIN));
-    }
+  if (s2 != last2) {
+    Firebase.RTDB.setInt(&fbdo, "/parking/slot2", s2);
+    last2 = s2;
   }
 
-  int distance = ultrasonic.read();
-
-  if (distance < DETECTION_DISTANCE && !vehicleDetected)
-  {
-    vehicleDetected = true;
-    processEntry();
+  if (s3 != last3) {
+    Firebase.RTDB.setInt(&fbdo, "/parking/slot3", s3);
+    last3 = s3;
   }
 
-  if (distance > 30)
-  {
-    vehicleDetected = false;
-  }
+  Serial.printf("S1:%d S2:%d S3:%d\n", s1, s2, s3);
 
-  if (millis() - lastPublish > 10000)
-  {
-    lastPublish = millis();
-    publishData();
-  }
+  delay(1000);
 }
