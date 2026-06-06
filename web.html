@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Smart Parking System</title>
+
+<style>
+:root{
+  --bg:#f6f8fc;
+  --card:#fff;
+  --text:#0f172a;
+  --muted:#475569;
+  --border:#e2e8f0;
+  --blue:#2563eb;
+  --green:#16a34a;
+  --red:#ef4444;
+  --amber:#f59e0b;
+}
+
+body{margin:0;font-family:system-ui;background:var(--bg);color:var(--text)}
+.wrap{max-width:1000px;margin:auto;padding:16px}
+h1{margin:0 0 10px}
+
+.grid{display:grid;grid-template-columns:2fr 1fr;gap:16px}
+@media(max-width:900px){.grid{grid-template-columns:1fr}}
+
+.card{
+  background:var(--card);
+  border:1px solid var(--border);
+  border-radius:14px;
+  padding:14px;
+}
+
+.slot{
+  border:2px dashed var(--border);
+  border-radius:14px;
+  padding:12px;
+  margin:10px 0;
+  transition:.2s;
+}
+
+.slot:hover{transform:translateY(-3px)}
+
+.badge{
+  padding:4px 10px;
+  border-radius:999px;
+  font-size:12px;
+}
+
+.free{color:var(--green);border:1px solid var(--green)}
+.occ{color:var(--red);border:1px solid var(--red)}
+.res{color:var(--amber);border:1px solid var(--amber)}
+
+button{
+  padding:8px 10px;
+  border-radius:10px;
+  border:1px solid var(--border);
+  cursor:pointer;
+}
+
+.primary{background:var(--blue);color:#fff}
+</style>
+</head>
+
+<body>
+<div class="wrap">
+<h1>🚗 Smart Parking System</h1>
+
+<div class="grid">
+
+<!-- LEFT -->
+<div class="card">
+<h3>Parking Slots</h3>
+
+<div id="slot1" class="slot">
+Slot 1 - <span id="s1">—</span>
+<br><span id="b1" class="badge">—</span>
+<br><button id="btn1" class="primary">Book</button>
+</div>
+
+<div id="slot2" class="slot">
+Slot 2 - <span id="s2">—</span>
+<br><span id="b2" class="badge">—</span>
+<br><button id="btn2" class="primary">Book</button>
+</div>
+
+<div id="slot3" class="slot">
+Slot 3 - <span id="s3">—</span>
+<br><span id="b3" class="badge">—</span>
+<br><button id="btn3" class="primary">Book</button>
+</div>
+
+<h4>🤖 AI Recommendation</h4>
+<p id="ai">Loading...</p>
+<button id="auto" class="primary">Book Recommended</button>
+
+</div>
+
+<!-- RIGHT -->
+<div class="card">
+<h3>Payment (Demo)</h3>
+<p id="pay">Not Paid</p>
+<button id="payBtn" class="primary">Pay 10$</button>
+
+<hr>
+
+<h3>User</h3>
+<input id="name" placeholder="Name"><br><br>
+<input id="car" placeholder="Car Number">
+
+</div>
+
+</div>
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
+import {
+getDatabase, ref, onValue, push, set, get
+} from "https://www.gstatic.com/firebasejs/10.12.5/firebase-database.js";
+
+const firebaseConfig = {
+apiKey: "YOUR_KEY",
+authDomain: "YOUR_DOMAIN",
+databaseURL: "YOUR_DB",
+projectId: "YOUR_ID"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+
+let parking = {slot1:0,slot2:0,slot3:0};
+let paid=false;
+let recommended=null;
+
+/* PAYMENT */
+document.getElementById("payBtn").onclick=()=>{
+paid=true;
+document.getElementById("pay").innerText="Paid ✅";
+};
+
+/* UPDATE UI */
+function update(){
+for(let i=1;i<=3;i++){
+let v=parking["slot"+i];
+document.getElementById("s"+i).innerText=v;
+
+let b=document.getElementById("b"+i);
+let btn=document.getElementById("btn"+i);
+
+if(v==1){
+b.innerText="Occupied";
+b.className="badge occ";
+btn.disabled=true;
+}
+else{
+b.innerText="Free";
+b.className="badge free";
+btn.disabled=!paid;
+}
+}
+}
+
+/* AI */
+function ai(){
+let best=null;
+for(let i=1;i<=3;i++){
+if(parking["slot"+i]==0){
+best=i;
+break;
+}
+}
+recommended=best;
+document.getElementById("ai").innerText=
+best? "Best Slot: "+best : "No slot";
+}
+
+/* BOOK */
+async function book(n){
+if(!paid)return alert("Pay first");
+const name=document.getElementById("name").value;
+const car=document.getElementById("car").value;
+
+await set(push(ref(db,"bookings")),{
+slot:n,name,car,status:"reserved"
+});
+
+alert("Booked Slot "+n);
+}
+
+document.getElementById("auto").onclick=()=>book(recommended);
+document.getElementById("btn1").onclick=()=>book(1);
+document.getElementById("btn2").onclick=()=>book(2);
+document.getElementById("btn3").onclick=()=>book(3);
+
+/* FIREBASE LISTENER */
+onValue(ref(db,"parking"),snap=>{
+parking=snap.val()||parking;
+update();
+ai();
+});
+
+</script>
+
+</body>
+</html>
